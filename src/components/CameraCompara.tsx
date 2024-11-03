@@ -2,29 +2,14 @@ import React, { useEffect, useRef, useState } from 'react';
 import { View, Text, ActivityIndicator, StyleSheet, Pressable, Image } from 'react-native';
 import { Camera, useCameraPermission, useCameraDevice, PhotoFile } from 'react-native-vision-camera';
 import axios from 'axios';
+import { useNavigation } from '@react-navigation/native';
 
-interface ImageBlob {
-  uri: string;
-  name: string;
-  type: string;
-}
-
-interface Store {
-  response: any;
-}
-
-interface Landmark {
-  Type: string;
-  X: number;
-  Y: number;
-}
-
-const CameraScreen = () => {
+const FaceComparisonScreen = () => {
   const { hasPermission, requestPermission } = useCameraPermission();
   const device = useCameraDevice('front');
   const [photo, setPhoto] = useState<PhotoFile | null>(null);
-  const [landmarks, setLandmarks] = useState<Landmark[]>([]);
   const camera = useRef<Camera>(null);
+  const navigation = useNavigation();
 
   useEffect(() => {
     if (!hasPermission) {
@@ -47,32 +32,20 @@ const CameraScreen = () => {
     }
   };
 
-  const PhotoUpload = async () => {
+  const comparePhoto = async () => {
     if (!photo) return;
 
     try {
-      const landmarks = await detectFace({
+      const formData = new FormData();
+      formData.append('file', {
         uri: `file://${photo.path}`,
         name: photo.path.split('/').pop() || 'photo.jpg',
         type: 'image/jpeg',
       });
-      setLandmarks(landmarks);
-    } catch (error) {
-      console.error("Erro no upload da foto:", error);
-    }
-  };
+      formData.append('id_user', '1234'); // Replace with the actual user ID
 
-  const detectFace = async (imageBlob: ImageBlob) => {
-    try {
-      const formData = new FormData();
-      formData.append('file', {
-        uri: imageBlob.uri,
-        name: imageBlob.name,
-        type: imageBlob.type,
-      });
-  
       const response = await axios.post(
-        'http://192.168.50.254:3000/detect-faces',
+        'http://192.168.50.254:3000/compare-face',
         formData,
         {
           headers: {
@@ -81,27 +54,16 @@ const CameraScreen = () => {
         }
       );
 
-      return storeDataBase(response.data);
-      
+      if (response.data.match) {
+        console.log('Authentication successful!');
+        navigation.navigate('TelaUsuario'); // Navigate to the main screen
+      } else {
+        console.log('Authentication failed. User not recognized.');
+      }
     } catch (error) {
-      console.error('Erro ao chamar endpoint de reconhecimento facial:', error);
-      return [];
+      console.error('Error comparing faces:', error);
     }
   };
-
-  const storeDataBase = async (response: Store) => {
-    try {
-      const id_user = "1234"; // Id do usuário a ser salvo no banco de dados
-      await axios.post('http://192.168.50.254:3000/store-face', {
-        id_user,
-        face_landmark: response,
-      });
-      console.log("Dados armazenados com sucesso no banco de dados");
-    } catch (error) {
-      console.error('Erro ao armazenar dados no banco de dados:', error);
-    }
-  };
-  
 
   return (
     <View style={{ flex: 1 }}>
@@ -115,18 +77,27 @@ const CameraScreen = () => {
         />
         <Pressable
           onPress={takePicture}
-          style={styles.captureButton}
-        />
+          style={{
+            position: 'absolute',
+            alignSelf: 'center',
+            bottom: 50,
+            width: 75,
+            height: 75,
+            backgroundColor: 'white',
+            borderRadius: 37.5,
+            justifyContent: 'center',
+            alignItems: 'center',
+          }}
+        >
+          <Text>Snap</Text>
+        </Pressable>
       </View>
 
       {photo && (
         <View style={styles.imageContainer}>
-          <Image 
-            source={{ uri: `file://${photo.path}` }} 
-            style={styles.image}
-          />
-          <Pressable onPress={PhotoUpload} style={styles.uploadButton}>
-            <Text>Upload Photo</Text>
+          <Image source={{ uri: `file://${photo.path}` }} style={styles.image} />
+          <Pressable onPress={comparePhoto} style={styles.compareButton}>
+            <Text>Authenticate</Text>
           </Pressable>
         </View>
       )}
@@ -135,17 +106,6 @@ const CameraScreen = () => {
 };
 
 const styles = StyleSheet.create({
-  captureButton: {
-    position: 'absolute',
-    alignSelf: 'center',
-    bottom: 50,
-    width: 75,
-    height: 75,
-    backgroundColor: 'white',
-    borderRadius: 37.5,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
   imageContainer: {
     position: 'absolute',
     top: 0,
@@ -162,7 +122,7 @@ const styles = StyleSheet.create({
     resizeMode: 'contain',
     borderRadius: 10,
   },
-  uploadButton: {
+  compareButton: {
     marginTop: 20,
     padding: 10,
     backgroundColor: 'white',
@@ -170,4 +130,4 @@ const styles = StyleSheet.create({
   },
 });
 
-export default CameraScreen;
+export default FaceComparisonScreen;

@@ -1,10 +1,10 @@
 import React from 'react';
 import { View, Button } from 'react-native';
-import CameraComponet from '../components/CameraComponent';
+import CameraCompara from '../components/CameraCompara';
 
 
 export function TelaCompararFace({navigation}) {
   return (
-    <CameraComponet/>
+    <CameraCompara/>
   );
 }
