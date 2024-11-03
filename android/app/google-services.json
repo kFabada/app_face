@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "1083516828059",
+    "project_id": "face-c5ffb",
+    "storage_bucket": "face-c5ffb.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1083516828059:android:416365098dd4be3515093e",
+        "android_client_info": {
+          "package_name": "com.myapp"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBwvJuP_3q0hUvWq1n4gYDBcWVLD55hbFc"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

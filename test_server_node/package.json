@@ -1,0 +1,21 @@
+{
+  "name": "rekognition-server",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "dependencies": {
+    "@aws-sdk/client-rekognition": "^3.682.0",
+    "@aws-sdk/lib-storage": "^3.685.0",
+    "aws-sdk": "^2.1691.0",
+    "express": "^4.21.1",
+    "multer": "^1.4.5-lts.1",
+    "pg": "^8.13.1",
+    "sharp": "^0.33.5"
+  }
+}
