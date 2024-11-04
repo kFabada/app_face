@@ -1,120 +1,119 @@
-require('dotenv').config();
 const express = require('express');
-const { RekognitionClient, DetectFacesCommand, CompareFacesCommand } = require('@aws-sdk/client-rekognition');
 const multer = require('multer');
-const fs = require('fs');
-const path = require('path');
+const { RekognitionClient, DetectFacesCommand, CompareFacesCommand } = require('@aws-sdk/client-rekognition');
 const { Client } = require('pg');
-const bodyParser = require('body-parser');
-
+const fs = require('fs');
 
 const app = express();
 const upload = multer({ dest: 'uploads/' });
+app.use(express.json({ limit: '10mb' }));
 
-// Configuração do banco de dados
-const dbClient = new Client({
+// Configurar PostgreSQL
+const db = new Client({
   user: 'postgres',
   host: 'localhost',
   database: 'face_api',
   password: '1234',
   port: 5432,
 });
+db.connect();
 
-dbClient.connect();
+// Configuração do AWS Rekognition
+const rekognitionClient = new RekognitionClient({ region: 'us-east-1' });
 
-// Configuração da AWS Rekognition
-const client = new RekognitionClient({
-  region: 'us-west-2',
-  credentials: {
-    accessKeyId: '', // Substitua com seu ID da chave de acesso
-    secretAccessKey: '',
-  },
-});
-
-app.use(bodyParser.json());
-
+// Rota para detectar pontos faciais com AWS Rekognition
 app.post('/detect-faces', upload.single('file'), async (req, res) => {
-  const filePath = path.join(__dirname, req.file.path);
-  const imageBuffer = fs.readFileSync(filePath);
+  const imagePath = req.file.path;
+  const imageBytes = fs.readFileSync(imagePath);
 
   const params = {
-    Image: { Bytes: imageBuffer },
+    Image: {
+      Bytes: imageBytes,
+    },
     Attributes: ['ALL'],
   };
 
   try {
     const command = new DetectFacesCommand(params);
-    const data = await client.send(command);
-    fs.unlinkSync(filePath);
-    res.json(data.FaceDetails[0].Landmarks);
-  } catch (err) {
-    console.error('Erro ao chamar Amazon Rekognition:', err);
-    fs.unlinkSync(filePath);
-    return res.status(500).json({ error: 'Erro ao chamar Amazon Rekognition' });
+    const response = await rekognitionClient.send(command);
+    fs.unlinkSync(imagePath); // Remover arquivo temporário
+
+    if (!response.FaceDetails || response.FaceDetails.length === 0) {
+      return res.status(400).json({ error: 'Nenhum rosto detectado na imagem.' });
+    }
+
+    res.json(response.FaceDetails.map(face => face.Landmarks));
+  } catch (error) {
+    console.error('Erro ao detectar rostos:', error);
+    res.status(500).json({ error: 'Erro ao detectar rostos' });
   }
 });
 
+// Rota para armazenar rosto e landmarks no banco de dados
 app.post('/store-face', async (req, res) => {
-  const { id_user, face_landmark } = req.body;
+  const { id_user, face_landmark, image } = req.body;
+
+  // Verificar se os dados necessários estão presentes
+  if (!image) {
+    console.error("Imagem não fornecida ou está vazia");
+    return res.status(400).json({ error: "Imagem não fornecida" });
+  }
 
   try {
-    const query = `
-      INSERT INTO face_data (id_user, face_landmark)
-      VALUES ($1, $2)
-      RETURNING *;
-    `;
-    const values = [id_user, JSON.stringify(face_landmark)];
-
-    const result = await dbClient.query(query, values);
-    res.status(201).json({ message: 'Dados armazenados com sucesso!', data: result.rows[0] });
-  } catch (err) {
-    console.error('Erro ao armazenar dados no banco de dados:', err);
-    res.status(500).json({ error: 'Erro ao armazenar dados no banco de dados' });
+    await db.query(
+      'INSERT INTO users (id_user, face_landmarks, face_image_base64) VALUES ($1, $2, $3) ON CONFLICT (id_user) DO NOTHING',
+      [id_user, JSON.stringify(face_landmark), image]
+    );
+    res.json({ message: 'Rosto armazenado com sucesso!' });
+  } catch (error) {
+    console.error('Erro ao armazenar rosto no banco de dados:', error);
+    res.status(500).json({ error: 'Erro ao armazenar rosto no banco de dados' });
   }
 });
 
-
+// Rota para comparar rostos
 app.post('/compare-face', upload.single('file'), async (req, res) => {
-  const filePath = path.join(__dirname, req.file.path);
-  const userId = req.body.id_user; // Pegue o ID do usuário do corpo da requisição
-
-  // Ler a imagem como um buffer
-  const imageBuffer = fs.readFileSync(filePath);
-
-  // Configuração da imagem para Rekognition
-  const params = {
-      Image: { Bytes: imageBuffer },
-      Attributes: ['ALL'], // Retorna landmarks e outras informações
-  };
+  const { id_user } = req.body;
+  const imagePath = req.file.path;
+  const newImageBytes = fs.readFileSync(imagePath);
 
   try {
-      const command = new DetectFacesCommand(params);
-      const data = await client.send(command);
+    // Buscar a imagem armazenada do usuário
+    const userResult = await db.query('SELECT face_image_base64 FROM users WHERE id_user = $1', [id_user]);
+    if (userResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Usuário não encontrado' });
+    }
 
-      // Remover o arquivo temporário
-      fs.unlinkSync(filePath);
+    const storedImageBytes = Buffer.from(userResult.rows[0].face_image_base64, 'base64');
 
-      // Verifique se FaceDetails e Landmarks existem
-      if (data.FaceDetails && data.FaceDetails.length > 0) {
-          const landmarks = data.FaceDetails[0].Landmarks;
+    // Configurar parâmetros de comparação no AWS Rekognition
+    const params = {
+      SourceImage: {
+        Bytes: storedImageBytes,
+      },
+      TargetImage: {
+        Bytes: newImageBytes,
+      },
+      SimilarityThreshold: 90, // Define o limite de similaridade (ajustável)
+    };
 
-          // Aqui você pode implementar a lógica de comparação com os dados do banco
-          // Por exemplo, comparando landmarks com os armazenados para o usuário
+    const command = new CompareFacesCommand(params);
+    const response = await rekognitionClient.send(command);
+    fs.unlinkSync(imagePath); // Remover arquivo temporário
 
-          // Exemplo de resposta
-          res.json({ match: true, landmarks }); // Retorne true se as faces coincidirem
-      } else {
-          res.status(400).json({ error: 'Nenhum rosto detectado na imagem.' });
-      }
-  } catch (err) {
-      console.error('Erro ao chamar Amazon Rekognition:', err);
-      fs.unlinkSync(filePath); // Remove o arquivo mesmo em caso de erro
-      return res.status(500).json({ error: 'Erro ao chamar Amazon Rekognition' });
+    console.log("esperando resposta do aws"); // Remover arquivo temporário
+    console.log(response);
+
+    if (!response.FaceMatches || response.FaceMatches.length === 0) {
+      return res.status(400).json({ error: 'Nenhum rosto encontrado na imagem fornecida para comparação.' });
+    }
+
+    const isMatch = response.FaceMatches.length > 0;
+    res.json({ match: isMatch });
+  } catch (error) {
+    console.error('Erro ao comparar rostos:', error);
+    res.status(500).json({ error: 'Erro ao comparar rostos' });
   }
 });
 
-
-const PORT = 3000;
-app.listen(PORT, () => {
-  console.log(`Servidor rodando na porta ${PORT}`);
-});
+app.listen(3000, () => console.log('Servidor rodando na porta 3000'));
